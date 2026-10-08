@@ -19,7 +19,7 @@ class _LoginPageState extends State<LoginPage>
   bool _confirmPasswordVisible = false;
 
   // Login
-  final _userNameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
   // Register
@@ -39,7 +39,7 @@ class _LoginPageState extends State<LoginPage>
 
   @override
   void dispose() {
-    _userNameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     _nameController.dispose();
     _regUserNameController.dispose();
@@ -53,16 +53,16 @@ class _LoginPageState extends State<LoginPage>
   // ── Auth actions ─────────────────────────────────────────────────────────
 
   Future<void> _login() async {
-    final userName = _userNameController.text.trim();
+    final email = _emailController.text.trim();
     final password = _passwordController.text;
-    if (userName.isEmpty || password.isEmpty) {
+    if (email.isEmpty || password.isEmpty) {
       _showSnack('Please fill in all fields.');
       return;
     }
     setState(() => _loading = true);
     try {
       final result = await AuthService.login(
-        userName: userName,
+        email: email,
         password: password,
       );
       await AuthProvider.instance.saveSession(
@@ -81,7 +81,7 @@ class _LoginPageState extends State<LoginPage>
     } on ApiException catch (e) {
       _showSnack(e.message);
     } catch (e) {
-      _showSnack('Connection error. Check your network.');
+      _showSnack('Connection error: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -307,12 +307,12 @@ class _LoginPageState extends State<LoginPage>
       key: const ValueKey('login'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _fieldLabel('Username'),
+        _fieldLabel('Email'),
         const SizedBox(height: 6),
         _inputField(
-          controller: _userNameController,
-          hint: 'Enter your username',
-          keyboardType: TextInputType.text,
+          controller: _emailController,
+          hint: 'Enter your email',
+          keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: 18),
         _fieldLabel('Password'),

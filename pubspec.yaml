@@ -37,6 +37,8 @@ dependencies:
   http: ^1.2.2
   shared_preferences: ^2.3.2
   video_player: ^2.9.2
+  url_launcher: ^6.3.2
+  flutter_math_fork: ^0.7.2
 
 dev_dependencies:
   flutter_test:

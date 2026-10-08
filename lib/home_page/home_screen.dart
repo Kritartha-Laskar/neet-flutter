@@ -2,10 +2,20 @@ import 'package:flutter/material.dart';
 import '../footer_header/app_footer.dart';
 import '../courses/courses_page.dart';
 import '../question_papers/question_papers_page.dart';
+import '../dashboard/dashboard_page.dart';
+import '../profile/profile_details_page.dart';
+import '../profile/health_support_page.dart';
 import '../class/class.dart';
 import '../services/auth_provider.dart';
 import '../services/class_service.dart';
+import '../services/resource_service.dart';
 import '../models/study_class_model.dart';
+import '../models/resource_model.dart';
+import '../models/question_paper_model.dart';
+import '../services/auth_service.dart';
+import '../services/question_paper_service.dart';
+import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'login_page.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -27,8 +37,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Dynamic Courses state ──────────────────────────────────────────────────
   bool _isLoadingCourses = true;
-  String? _coursesErrorMessage;
+  String? _coursesErrorMessage = null;
   List<StudyClassModel> _apiCourses = [];
+
+  // ── Home Page Media (Photos & Videos) state ─────────────────────────────────
+  bool _isLoadingResources = true;
+  List<ResourceModel> _resources = [];
+
+  // ── Dynamic Question Papers & Stats state ──────────────────────────────────
+  bool _isLoadingQuestionPaperStats = true;
+  int _totalMockTests = 0;
+  int _totalPracticeQuestions = 0;
+
+  Map<String, List<StudyClassModel>> get _groupedCourses {
+    final Map<String, List<StudyClassModel>> groups = {};
+    for (final course in _apiCourses) {
+      final subjectName = course.subject ?? 'General';
+      groups.putIfAbsent(subjectName, () => []).add(course);
+    }
+    return groups;
+  }
 
   final List<Color> _presetColors = [
     const Color(0xFFE8F5E9), // Light Green
@@ -48,21 +76,66 @@ class _HomeScreenState extends State<HomeScreen> {
     const Color(0xFF00BCD4), // Teal
   ];
 
-  final List<IconData> _presetIcons = [
-    Icons.calculate_rounded,
-    Icons.language_rounded,
-    Icons.memory_rounded,
-    Icons.account_tree_rounded,
-    Icons.code_rounded,
-    Icons.terminal_rounded,
-    Icons.auto_stories_rounded,
-    Icons.science_rounded,
-  ];
-
   @override
   void initState() {
     super.initState();
     _fetchCourses();
+    _fetchResources();
+    _fetchQuestionPaperStats();
+  }
+
+  Future<void> _fetchQuestionPaperStats() async {
+    final token = AuthProvider.instance.token;
+    if (token == null || token.isEmpty) {
+      if (mounted) setState(() => _isLoadingQuestionPaperStats = false);
+      return;
+    }
+
+    try {
+      final res = await QuestionPaperService.fetchList(token: token, page: 1);
+      final int totalPapers = (res['total'] as num? ?? 0).toInt();
+      final List<QuestionPaperModel> papers =
+          (res['papers'] as List<dynamic>? ?? []).cast<QuestionPaperModel>();
+
+      int sumQ = 0;
+      for (final p in papers) {
+        final q = p.totalQuestions > 0 ? p.totalQuestions : p.questionsCount;
+        sumQ += q;
+      }
+
+      int estimatedTotalQuestions = sumQ;
+      if (papers.isNotEmpty && totalPapers > papers.length) {
+        final double avgQ = sumQ / papers.length;
+        estimatedTotalQuestions = (avgQ * totalPapers).round();
+      }
+
+      if (mounted) {
+        setState(() {
+          _totalMockTests = totalPapers > 0 ? totalPapers : papers.length;
+          _totalPracticeQuestions = estimatedTotalQuestions;
+          _isLoadingQuestionPaperStats = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoadingQuestionPaperStats = false);
+      }
+    }
+  }
+
+  String _formatCount(int count, {bool isK = false}) {
+    if (count <= 0) return '0+';
+    if (isK && count >= 1000) {
+      if (count >= 10000) {
+        return '${(count / 1000).toStringAsFixed(0)}K+';
+      } else {
+        final double k = count / 1000;
+        return k == k.roundToDouble()
+            ? '${k.toInt()}K+'
+            : '${k.toStringAsFixed(1)}K+';
+      }
+    }
+    return '$count+';
   }
 
   Future<void> _fetchCourses() async {
@@ -94,35 +167,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  final List<_Practice> _practices = [
-    _Practice(
-      title: 'Arrays & Hashing',
-      questions: 30,
-      difficulty: 'Medium',
-      minutes: 45,
-      icon: Icons.monitor_rounded,
-      iconColor: Color(0xFF6C63FF),
-      iconBg: Color(0xFFEDE7FF),
-    ),
-    _Practice(
-      title: 'Number Series',
-      questions: 25,
-      difficulty: 'Easy',
-      minutes: 30,
-      icon: Icons.bar_chart_rounded,
-      iconColor: Color(0xFF2196F3),
-      iconBg: Color(0xFFE3F2FD),
-    ),
-    _Practice(
-      title: 'Logical Reasoning',
-      questions: 20,
-      difficulty: 'Hard',
-      minutes: 60,
-      icon: Icons.psychology_rounded,
-      iconColor: Color(0xFFE91E63),
-      iconBg: Color(0xFFFCE4EC),
-    ),
-  ];
+  Future<void> _fetchResources() async {
+    final token = AuthProvider.instance.token;
+    if (token == null || token.isEmpty) {
+      setState(() => _isLoadingResources = false);
+      return;
+    }
+
+    try {
+      final list = await ResourceService.fetchResources(token: token);
+      setState(() {
+        _resources = list;
+        _isLoadingResources = false;
+      });
+    } catch (_) {
+      setState(() => _isLoadingResources = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -132,20 +193,28 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           children: [
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildTopBar(),
-                    _buildSearchBar(),
-                    _buildStatsRow(),
-                    _buildSectionHeader('Available Courses'),
-                    _buildCoursesList(),
-                    _buildSectionHeader('Continue Practising'),
-                    _buildPracticeList(),
-                    const SizedBox(height: 24),
-                  ],
+              child: RefreshIndicator(
+                color: _primary,
+                onRefresh: () async {
+                  await _fetchCourses();
+                  await _fetchResources();
+                  await _fetchQuestionPaperStats();
+                },
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTopBar(),
+                      _buildPhotosSlider(),
+                      _buildVideosSection(),
+                      const SizedBox(height: 16),
+                      _buildCoursesList(),
+                      const SizedBox(height: 20),
+                      _buildConnectAndStatsSection(),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -154,128 +223,53 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: AppFooter(
         currentIndex: _currentNavIndex,
-        onTap: (i) {
-          if (i == 1) {
-            Navigator.of(context).push(
-              PageRouteBuilder(
-                pageBuilder: (_, animation, __) => const CoursesPage(),
-                transitionsBuilder: (_, animation, __, child) =>
-                    FadeTransition(opacity: animation, child: child),
-                transitionDuration: const Duration(milliseconds: 280),
-              ),
-            );
-          } else if (i == 2) {
-            Navigator.of(context).push(
-              PageRouteBuilder(
-                pageBuilder: (_, animation, __) => const QuestionPapersPage(),
-                transitionsBuilder: (_, animation, __, child) =>
-                    FadeTransition(opacity: animation, child: child),
-                transitionDuration: const Duration(milliseconds: 280),
-              ),
-            );
-          } else if (i == 3) {
-            _showProfileMenu();
-          } else {
-            setState(() => _currentNavIndex = i);
-          }
-        },
+        onTap: _onFooterTap,
       ),
     );
   }
 
+  void _onFooterTap(int i) async {
+    if (i == 1) {
+      // Tests Tab
+      final targetIndex = await Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, animation, __) => const QuestionPapersPage(),
+          transitionsBuilder: (_, animation, __, child) =>
+              FadeTransition(opacity: animation, child: child),
+          transitionDuration: const Duration(milliseconds: 280),
+        ),
+      );
+      if (targetIndex is int) {
+        _onFooterTap(targetIndex);
+      }
+    } else if (i == 2) {
+      // Dashboard Tab
+      final targetIndex = await Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (_, animation, __) => const DashboardPage(),
+          transitionsBuilder: (_, animation, __, child) =>
+              FadeTransition(opacity: animation, child: child),
+          transitionDuration: const Duration(milliseconds: 280),
+        ),
+      );
+      if (targetIndex is int) {
+        _onFooterTap(targetIndex);
+      }
+    } else if (i == 3) {
+      // Profile Tab
+      _showProfileMenu();
+    } else {
+      setState(() => _currentNavIndex = i);
+    }
+  }
+
   // ── Profile menu ──────────────────────────────────────────────────────────
   void _showProfileMenu() {
-    final user = AuthProvider.instance.user;
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0E0E0),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6C63FF), Color(0xFF8B7CF8)],
-                ),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                user?.initials ?? 'U',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 22,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              user?.name ?? 'User',
-              style: const TextStyle(
-                  fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              user?.gmail ?? '',
-              style: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 13),
-            ),
-            Text(
-              '@${user?.userName ?? ''}',
-              style: const TextStyle(
-                  color: Color(0xFF6C63FF),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await AuthProvider.instance.logout();
-                  if (!mounted) return;
-                  Navigator.of(context).pushAndRemoveUntil(
-                    PageRouteBuilder(
-                      pageBuilder: (_, animation, __) => const LoginPage(),
-                      transitionsBuilder: (_, animation, __, child) =>
-                          FadeTransition(opacity: animation, child: child),
-                    ),
-                    (route) => false,
-                  );
-                },
-                icon: const Icon(Icons.logout_rounded),
-                label: const Text('Log Out'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A1A2E),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+      builder: (_) => const _ProfileSheetContent(),
     );
   }
 
@@ -291,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final emoji = hour < 12 ? '🌤' : hour < 17 ? '☀️' : '🌙';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
       child: Row(
         children: [
           Expanded(
@@ -362,128 +356,216 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Search bar ─────────────────────────────────────────────────────────────
-  Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      child: Container(
-        height: 48,
+  // ── Photos / Banner Slider (Directly from Backend Uploads) ──────────────
+  Widget _buildPhotosSlider() {
+    final photos = _resources.where((r) => r.isImage).toList();
+    if (_isLoadingResources) {
+      return Container(
+        height: 160,
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
-          color: _cardBg,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: TextField(
-          style: const TextStyle(fontSize: 14, color: _textDark),
-          decoration: InputDecoration(
-            hintText: 'Search courses, tests...',
-            hintStyle: TextStyle(color: _textMuted, fontSize: 14),
-            prefixIcon: Icon(Icons.search_rounded, color: _textMuted, size: 20),
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Stats row ──────────────────────────────────────────────────────────────
-  Widget _buildStatsRow() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-      child: Container(
-        decoration: BoxDecoration(
-          color: _cardBg,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
-        child: Row(
-          children: [
-            _statCell('12', 'Tests Taken'),
-            _verticalDivider(),
-            _statCell('74%', 'Avg Score'),
-            _verticalDivider(),
-            _statCell('3', 'Enrolled'),
-          ],
-        ),
-      ),
-    );
-  }
+        child: const Center(child: CircularProgressIndicator(color: _primary)),
+      );
+    }
+    if (photos.isEmpty) return const SizedBox.shrink();
 
-  Widget _statCell(String value, String label) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: const TextStyle(
-                color: _primary,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: _textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _verticalDivider() {
-    return Container(width: 1, height: 40, color: const Color(0xFFEEEEEE));
-  }
-
-  // ── Section header ─────────────────────────────────────────────────────────
-  Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: _textDark,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.1,
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      child: Column(
+        children: photos.map((photo) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            height: 170,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-          ),
-          GestureDetector(
-            onTap: () {},
-            child: const Text(
-              'See all',
-              style: TextStyle(
-                color: _primary,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    photo.fileUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: const Color(0xFF6C63FF).withOpacity(0.1),
+                      child: const Icon(Icons.image,
+                          color: _primary, size: 40),
+                    ),
+                  ),
+                  if (photo.title.isNotEmpty)
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withOpacity(0.75),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                        child: Text(
+                          photo.title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-          ),
-        ],
+          );
+        }).toList(),
       ),
+    );
+  }
+
+  // ── Videos Section (Directly from Backend Uploads) ──────────────────────
+  Widget _buildVideosSection() {
+    final videos = _resources.where((r) => r.isVideo).toList();
+    if (videos.isEmpty) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 200,
+      child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.only(left: 20, right: 8),
+            itemCount: videos.length,
+            itemBuilder: (ctx, i) {
+              final video = videos[i];
+              return GestureDetector(
+                onTap: () => _openVideoModal(video),
+                child: Container(
+                  width: 220,
+                  margin: const EdgeInsets.only(right: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Video Thumbnail Area
+                      SizedBox(
+                        height: 120,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ClipRRect(
+                              borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(16)),
+                              child: video.thumbnailUrl != null &&
+                                      video.thumbnailUrl!.isNotEmpty
+                                  ? Image.network(
+                                      video.thumbnailUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          _videoPlaceholder(),
+                                    )
+                                  : _videoPlaceholder(),
+                            ),
+                            // Play Icon Overlay
+                            Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.6),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.play_arrow_rounded,
+                                  color: Colors.white,
+                                  size: 28,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Info Area
+                      Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              video.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _textDark,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              video.description ??
+                                  video.subject ??
+                                  'Video Lecture',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _textMuted,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+  }
+
+  Widget _videoPlaceholder() {
+    return Container(
+      color: const Color(0xFF1E1E2E),
+      child: const Center(
+        child: Icon(Icons.movie_creation_rounded,
+            color: Colors.white54, size: 36),
+      ),
+    );
+  }
+
+  void _openVideoModal(ResourceModel video) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AppVideoPlayerModal(video: video),
     );
   }
 
@@ -514,52 +596,44 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    if (_apiCourses.isEmpty) {
-      return const SizedBox(
-        height: 180,
-        child: Center(
-          child: Text(
-            'No courses available',
-            style: TextStyle(color: _textMuted, fontSize: 13),
-          ),
-        ),
-      );
+    final grouped = _groupedCourses;
+
+    if (grouped.isEmpty) {
+      return const SizedBox.shrink();
     }
 
+    final subjectKeys = grouped.keys.toList();
+
     return SizedBox(
-      height: 180,
+      height: 195,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.only(left: 20, right: 8),
-        itemCount: _apiCourses.length,
+        itemCount: subjectKeys.length,
         itemBuilder: (ctx, i) {
-          final course = _apiCourses[i];
+          final subjectName = subjectKeys[i];
+          final classes = grouped[subjectName]!;
           final color = _presetColors[i % _presetColors.length];
           final iconColor = _presetIconColors[i % _presetIconColors.length];
-          final icon = _presetIcons[i % _presetIcons.length];
-          return _buildCourseCard(course, color, iconColor, icon);
+          return _buildSubjectCard(subjectName, classes, color, iconColor);
         },
       ),
     );
   }
 
-  Widget _buildCourseCard(
-    StudyClassModel course,
+  Widget _buildSubjectCard(
+    String subjectName,
+    List<StudyClassModel> classes,
     Color bgColor,
     Color iconColor,
-    IconData icon,
   ) {
+    final count = classes.length;
+    final countText = count == 1 ? '1 Class' : '$count Classes';
+
     return GestureDetector(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => ClassPage(
-              classId: course.id,
-              initialClassName: course.name,
-            ),
-          ),
-        );
+        _showClassesBottomSheet(subjectName, classes);
       },
       child: Container(
         width: 140,
@@ -569,7 +643,7 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withOpacity(0.05),
               blurRadius: 12,
               offset: const Offset(0, 3),
             ),
@@ -588,7 +662,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Stack(
                 children: [
-                  // Decorative blob
                   Positioned(
                     right: -10,
                     top: -10,
@@ -609,7 +682,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: iconColor.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Icon(icon, color: iconColor, size: 26),
+                      child: Icon(Icons.folder_rounded,
+                          color: iconColor, size: 28),
                     ),
                   ),
                 ],
@@ -622,39 +696,37 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    course.name,
+                    subjectName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: _textDark,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${course.resourcesCount} resources',
-                    style: TextStyle(
+                    countText,
+                    style: const TextStyle(
                       color: _textMuted,
                       fontSize: 10,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  // Enroll button
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 6, horizontal: 14),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [_primary, Color(0xFF8B7CF8)],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
+                      color: _primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Text(
-                      'Enroll',
+                      'Open Folder',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
+                        color: _primary,
+                        fontSize: 9,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -668,126 +740,838 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Continue Practising list ───────────────────────────────────────────────
-  Widget _buildPracticeList() {
+  void _showClassesBottomSheet(
+      String subjectName, List<StudyClassModel> classes) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: _cardBg,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  const Icon(Icons.folder_open_rounded,
+                      color: _primary, size: 28),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      subjectName,
+                      style: const TextStyle(
+                        color: _textDark,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${classes.length} Available Classes',
+                style: const TextStyle(
+                  color: _textMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: classes.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (ctx, index) {
+                    final studyClass = classes[index];
+                    final color =
+                        _presetIconColors[index % _presetIconColors.length];
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ClassPage(
+                              classId: studyClass.id,
+                              initialClassName: studyClass.name,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: _surface,
+                          borderRadius: BorderRadius.circular(16),
+                          border:
+                              Border.all(color: Colors.black.withOpacity(0.03)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: color.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(Icons.class_rounded,
+                                  color: color, size: 20),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    studyClass.name,
+                                    style: const TextStyle(
+                                      color: _textDark,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  if (studyClass.description != null &&
+                                      studyClass.description!.isNotEmpty) ...[
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      studyClass.description!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: _textMuted,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(Icons.arrow_forward_ios_rounded,
+                                color: _textMuted.withOpacity(0.7), size: 14),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Connect With Us & Stats Section ─────────────────────────────────────────
+  Widget _buildConnectAndStatsSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        children: _practices
-            .map((p) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _buildPracticeCard(p),
-                ))
-            .toList(),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.black.withOpacity(0.04)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Section Header
+            Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00E676),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Connect With Us',
+                  style: TextStyle(
+                    color: _textDark,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Social Media Cards Row
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSocialCard(
+                    title: 'Instagram',
+                    subtitle: 'Follow us',
+                    url: 'https://instagram.com',
+                    iconWidget: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topRight,
+                          end: Alignment.bottomLeft,
+                          colors: [
+                            Color(0xFF833AB4),
+                            Color(0xFFE1306C),
+                            Color(0xFFFD1D1D),
+                            Color(0xFFF77737),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.camera_alt_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildSocialCard(
+                    title: 'Telegram',
+                    subtitle: 'Join our channel',
+                    url: 'https://t.me',
+                    iconWidget: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF2AABEE),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.send_rounded,
+                          color: Colors.white,
+                          size: 19,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildSocialCard(
+                    title: 'Facebook',
+                    subtitle: 'Follow us',
+                    url: 'https://facebook.com',
+                    iconWidget: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1877F2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.facebook,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Statistics Banner
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F6FA),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFECEFF8)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildStatItem(
+                      icon: Icons.menu_book_rounded,
+                      iconBg: const Color(0xFFEDE7FF),
+                      iconColor: _primary,
+                      number: _isLoadingQuestionPaperStats
+                          ? '...'
+                          : _formatCount(_totalMockTests),
+                      label: 'Mock Tests',
+                    ),
+                  ),
+                  Expanded(
+                    child: _buildStatItem(
+                      icon: Icons.check_rounded,
+                      iconBg: const Color(0xFF00C853),
+                      iconColor: Colors.white,
+                      number: _isLoadingQuestionPaperStats
+                          ? '...'
+                          : _formatCount(_totalPracticeQuestions, isK: true),
+                      label: 'Practice Questions',
+                    ),
+                  ),
+                  Expanded(
+                    child: _buildStatItem(
+                      icon: Icons.emoji_events_rounded,
+                      iconBg: const Color(0xFFEDE7FF),
+                      iconColor: _primary,
+                      number: '5000+',
+                      label: 'Rank Boosters',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildPracticeCard(_Practice p) {
-    Color diffColor;
-    switch (p.difficulty) {
-      case 'Easy':
-        diffColor = const Color(0xFF4CAF50);
-        break;
-      case 'Hard':
-        diffColor = const Color(0xFFE91E63);
-        break;
-      default:
-        diffColor = const Color(0xFFFF9800);
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: _cardBg,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+  Widget _buildSocialCard({
+    required String title,
+    required String subtitle,
+    required String url,
+    required Widget iconWidget,
+  }) {
+    return GestureDetector(
+      onTap: () => _launchSocialURL(url),
+      child: Container(
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F6FA),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFECEFF8)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                iconWidget,
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.north_east_rounded,
+                    color: Color(0xFF2E7D32),
+                    size: 15,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _textDark,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _textMuted,
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        leading: Container(
-          width: 44,
-          height: 44,
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String number,
+    required String label,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
-            color: p.iconBg,
-            borderRadius: BorderRadius.circular(12),
+            color: iconBg,
+            shape: BoxShape.circle,
           ),
-          child: Icon(p.icon, color: p.iconColor, size: 22),
-        ),
-        title: Text(
-          p.title,
-          style: const TextStyle(
-            color: _textDark,
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
+          child: Center(
+            child: Icon(
+              icon,
+              color: iconColor,
+              size: 17,
+            ),
           ),
         ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 3),
-          child: Row(
+        const SizedBox(width: 7),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '${p.questions} Qs',
-                style: TextStyle(color: _textMuted, fontSize: 11),
-              ),
-              Text(' · ', style: TextStyle(color: _textMuted, fontSize: 11)),
-              Text(
-                p.difficulty,
-                style: TextStyle(
-                  color: diffColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                number,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _textDark,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  height: 1.1,
                 ),
               ),
-              Text(' · ', style: TextStyle(color: _textMuted, fontSize: 11)),
               Text(
-                '${p.minutes} min',
-                style: TextStyle(color: _textMuted, fontSize: 11),
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _textMuted,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w500,
+                  height: 1.1,
+                ),
               ),
             ],
           ),
         ),
-        trailing: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: _surface,
-            borderRadius: BorderRadius.circular(8),
+      ],
+    );
+  }
+
+  Future<void> _launchSocialURL(String urlString) async {
+    final Uri uri = Uri.parse(urlString);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      debugPrint('Could not launch $urlString: $e');
+    }
+  }
+}
+
+class _ProfileSheetContent extends StatelessWidget {
+  const _ProfileSheetContent();
+
+  @override
+  Widget build(BuildContext context) {
+    final user = AuthProvider.instance.user;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
           ),
-          child: const Icon(Icons.arrow_forward_ios_rounded,
-              size: 13, color: _textMuted),
-        ),
-        onTap: () {},
+          GestureDetector(
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ProfileDetailsPage()),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              color: Colors.transparent,
+              child: Row(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF6C63FF), Color(0xFF8B7CF8)],
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      user?.initials ?? 'U',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user?.name ?? 'Student',
+                          style: const TextStyle(
+                            color: Color(0xFF1A1A2E),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          user?.gmail ?? '',
+                          style: const TextStyle(
+                            color: Color(0xFF9E9E9E),
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'View Profile & Change Password ›',
+                          style: TextStyle(
+                            color: Color(0xFF6C63FF),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded,
+                      color: Color(0xFF9E9E9E), size: 22),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ListTile(
+            leading: const Icon(Icons.health_and_safety_rounded,
+                color: Color(0xFF6C63FF), size: 22),
+            title: const Text(
+              'Health & Support',
+              style: TextStyle(
+                color: Color(0xFF1A1A2E),
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+            subtitle: const Text(
+              'App status, FAQs & customer support',
+              style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 11),
+            ),
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const HealthSupportPage()),
+              );
+            },
+          ),
+          const Divider(),
+          const SizedBox(height: 8),
+          ListTile(
+            leading:
+                const Icon(Icons.logout_rounded, color: Colors.red, size: 22),
+            title: const Text(
+              'Sign Out',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+            onTap: () async {
+              Navigator.of(context).pop();
+              await AuthProvider.instance.logout();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                  (_) => false,
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Interactive Video Player Modal ───────────────────────────────────────────
+
+class AppVideoPlayerModal extends StatefulWidget {
+  final ResourceModel video;
+
+  const AppVideoPlayerModal({super.key, required this.video});
+
+  @override
+  State<AppVideoPlayerModal> createState() => _AppVideoPlayerModalState();
+}
+
+class _AppVideoPlayerModalState extends State<AppVideoPlayerModal> {
+  late VideoPlayerController _controller;
+  bool _initialized = false;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    try {
+      final uri = Uri.parse(widget.video.fileUrl);
+      _controller = VideoPlayerController.networkUrl(uri);
+      await _controller.initialize();
+      if (mounted) {
+        setState(() {
+          _initialized = true;
+        });
+        _controller.play();
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = true;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_initialized) {
+      _controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              const Icon(Icons.play_circle_fill_rounded,
+                  color: Color(0xFFFF4757), size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.video.title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A1A2E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (widget.video.description != null &&
+              widget.video.description!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              widget.video.description!,
+              style: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          // Video Player Box
+          Container(
+            height: 220,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: _buildPlayerContent(),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-}
+  Widget _buildPlayerContent() {
+    if (_error) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.movie_creation_outlined,
+                  color: Colors.white70, size: 36),
+              const SizedBox(height: 8),
+              const Text(
+                'Could not stream video directly in player.',
+                style: TextStyle(color: Colors.white, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  final uri = Uri.parse(widget.video.fileUrl);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                label: const Text('Play Video Externally'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF4757),
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
-// ── Data models ───────────────────────────────────────────────────────────────
+    if (!_initialized) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFFFF4757)),
+      );
+    }
 
-class _Practice {
-  final String title;
-  final int questions;
-  final String difficulty;
-  final int minutes;
-  final IconData icon;
-  final Color iconColor;
-  final Color iconBg;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        AspectRatio(
+          aspectRatio: _controller.value.aspectRatio > 0
+              ? _controller.value.aspectRatio
+              : 16 / 9,
+          child: VideoPlayer(_controller),
+        ),
 
-  const _Practice({
-    required this.title,
-    required this.questions,
-    required this.difficulty,
-    required this.minutes,
-    required this.icon,
-    required this.iconColor,
-    required this.iconBg,
-  });
+        // Controls Overlay
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              if (_controller.value.isPlaying) {
+                _controller.pause();
+              } else {
+                _controller.play();
+              }
+            });
+          },
+          child: Container(
+            color: Colors.transparent,
+            child: AnimatedOpacity(
+              opacity: _controller.value.isPlaying ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 200),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _controller.value.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 42,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // Bottom Progress Bar Indicator
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: VideoProgressIndicator(
+            _controller,
+            allowScrubbing: true,
+            colors: const VideoProgressColors(
+              playedColor: Color(0xFFFF4757),
+              bufferedColor: Colors.white30,
+              backgroundColor: Colors.white10,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

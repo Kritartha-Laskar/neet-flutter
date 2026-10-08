@@ -44,14 +44,14 @@ class AuthService {
 
   // ── Login ──────────────────────────────────────────────────────────────────
   static Future<Map<String, dynamic>> login({
-    required String userName,
+    required String email,
     required String password,
   }) async {
     final response = await http
         .post(
           Uri.parse(ApiConfig.login),
           headers: ApiConfig.defaultHeaders,
-          body: jsonEncode({'user_name': userName, 'password': password}),
+          body: jsonEncode({'email': email, 'password': password}),
         )
         .timeout(const Duration(seconds: 15));
 
@@ -87,6 +87,34 @@ class AuthService {
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 200 && data['success'] == true) {
       return UserModel.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    throw ApiException(_extractMessage(data, response.statusCode));
+  }
+
+  // ── Change Password ────────────────────────────────────────────────────────
+  static Future<void> changePassword({
+    required String token,
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final body = {
+      'current_password': currentPassword,
+      'new_password': newPassword,
+      'new_password_confirmation': confirmPassword,
+    };
+
+    final response = await http
+        .post(
+          Uri.parse(ApiConfig.changePassword),
+          headers: ApiConfig.authHeaders(token),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200 && data['success'] == true) {
+      return;
     }
     throw ApiException(_extractMessage(data, response.statusCode));
   }

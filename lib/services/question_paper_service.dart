@@ -9,9 +9,20 @@ class QuestionPaperService {
   static Future<Map<String, dynamic>> fetchList({
     required String token,
     int page = 1,
+    String? paperType,
+    String? subjectName,
+    int? subjectId,
   }) async {
+    final queryParams = <String, String>{
+      'page': '$page',
+      'per_page': '50',
+      if (paperType != null && paperType.isNotEmpty) 'paper_type': paperType,
+      if (subjectId != null) 'subject_id': '$subjectId',
+      if (subjectName != null && subjectName.isNotEmpty)
+        'subject_name': subjectName,
+    };
     final uri =
-        Uri.parse(ApiConfig.questionPapers).replace(queryParameters: {'page': '$page'});
+        Uri.parse(ApiConfig.questionPapers).replace(queryParameters: queryParams);
     final response = await http
         .get(uri, headers: ApiConfig.authHeaders(token))
         .timeout(const Duration(seconds: 15));
@@ -44,6 +55,9 @@ class QuestionPaperService {
         )
         .timeout(const Duration(seconds: 15));
 
+    if (response.statusCode == 401) {
+      throw const ApiException('Session expired or unauthorized (401). Please log in again.');
+    }
     final data = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode == 200 && data['success'] == true) {
       return QuestionPaperDetailModel.fromJson(

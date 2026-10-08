@@ -3,17 +3,23 @@ class OptionModel {
   final int id;
   final String answer;
   final bool isCorrect;
+  final String? reason;
 
   const OptionModel({
     required this.id,
     required this.answer,
     required this.isCorrect,
+    this.reason,
   });
 
   factory OptionModel.fromJson(Map<String, dynamic> json) => OptionModel(
         id: (json['id'] as num).toInt(),
         answer: json['answer']?.toString() ?? '',
         isCorrect: json['is_correct'] == true || json['is_correct'] == 1,
+        reason: json['reason']?.toString() ??
+            json['reasion']?.toString() ??
+            json['explanation']?.toString() ??
+            json['solution']?.toString(),
       );
 }
 
@@ -23,16 +29,20 @@ class QuestionModel {
   final int order;
   final int marks;
   final String question;
+  final String? imageUrl;
   final String questionType;
   final List<OptionModel> options;
+  final String? reason;
 
   const QuestionModel({
     required this.id,
     required this.order,
     required this.marks,
     required this.question,
+    this.imageUrl,
     required this.questionType,
     required this.options,
+    this.reason,
   });
 
   factory QuestionModel.fromJson(Map<String, dynamic> json) => QuestionModel(
@@ -40,10 +50,16 @@ class QuestionModel {
         order: (json['order'] as num? ?? 0).toInt(),
         marks: (json['marks'] as num? ?? 0).toInt(),
         question: json['question']?.toString() ?? '',
+        imageUrl: json['image_url']?.toString() ?? json['image']?.toString(),
         questionType: json['question_type']?.toString() ?? 'mcq',
         options: (json['options'] as List<dynamic>? ?? [])
             .map((o) => OptionModel.fromJson(o as Map<String, dynamic>))
             .toList(),
+        reason: json['reason']?.toString() ??
+            json['reasion']?.toString() ??
+            json['explanation']?.toString() ??
+            json['solution']?.toString() ??
+            json['answer_reason']?.toString(),
       );
 }
 
@@ -77,6 +93,10 @@ class QuestionPaperModel {
   final String title;
   final String? description;
   final String? examName;
+  final String? paperType;
+  final int? subjectId;
+  final String? subjectName;
+  final String? chapterName;
   final int? examYear;
   final int totalQuestions;
   final int totalMarks;
@@ -89,6 +109,10 @@ class QuestionPaperModel {
     required this.title,
     this.description,
     this.examName,
+    this.paperType,
+    this.subjectId,
+    this.subjectName,
+    this.chapterName,
     this.examYear,
     required this.totalQuestions,
     required this.totalMarks,
@@ -103,6 +127,10 @@ class QuestionPaperModel {
         title: json['title']?.toString() ?? '',
         description: json['description']?.toString(),
         examName: json['exam_name']?.toString(),
+        paperType: json['paper_type']?.toString(),
+        subjectId: json['subject_id'] == null ? null : int.tryParse(json['subject_id'].toString()),
+        subjectName: json['subject_name']?.toString(),
+        chapterName: json['chapter_name']?.toString() ?? json['chapter']?.toString(),
         examYear: json['exam_year'] == null ? null : int.tryParse(json['exam_year'].toString()),
         totalQuestions: (json['total_questions'] as num? ?? 0).toInt(),
         totalMarks: (json['total_marks'] as num? ?? 0).toInt(),

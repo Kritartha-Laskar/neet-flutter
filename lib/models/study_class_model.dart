@@ -44,6 +44,7 @@ class StudyClassModel {
   final String? createdAt;
   final List<ResourceModel> materials;
   final List<PlaylistItemModel> playlist;
+  final String? subject;
 
   StudyClassModel({
     required this.id,
@@ -54,6 +55,7 @@ class StudyClassModel {
     this.createdAt,
     this.materials = const [],
     this.playlist = const [],
+    this.subject,
   });
 
   factory StudyClassModel.fromJson(Map<String, dynamic> json) {
@@ -80,6 +82,7 @@ class StudyClassModel {
       createdAt: json['created_at'] as String?,
       materials: parsedMaterials,
       playlist: parsedPlaylist,
+      subject: json['subject'] as String?,
     );
   }
 }

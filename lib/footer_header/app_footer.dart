@@ -29,8 +29,8 @@ class AppFooter extends StatelessWidget {
   // ── Nav items ───────────────────────────────────────────────────────────────
   static const List<_NavItem> _items = [
     _NavItem(icon: Icons.home_rounded, label: 'Home'),
-    _NavItem(icon: Icons.menu_book_rounded, label: 'Courses'),
     _NavItem(icon: Icons.description_rounded, label: 'Tests'),
+    _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _NavItem(icon: Icons.person_rounded, label: 'Profile'),
   ];
 

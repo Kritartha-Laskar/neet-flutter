@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config/api_config.dart';
 import '../models/resource_model.dart';
 import '../models/study_class_model.dart';
@@ -114,6 +115,24 @@ class _ClassPageState extends State<ClassPage> {
         _isLoadingClasses = false;
         _errorMessage = e.toString().replaceAll('Exception: ', '');
       });
+    }
+  }
+
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        throw Exception('Could not launch $urlString');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening file: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -1197,15 +1216,27 @@ class _ClassPageState extends State<ClassPage> {
           ),
           const SizedBox(height: 12),
           // Question text
-          Text(
-            q.question,
-            style: const TextStyle(
-              color: _textDark,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              height: 1.45,
+          if (q.question.isNotEmpty)
+            Text(
+              q.question,
+              style: const TextStyle(
+                color: _textDark,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                height: 1.45,
+              ),
             ),
-          ),
+          if (q.imageUrl != null && q.imageUrl!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(
+                ApiConfig.formatUrl(q.imageUrl),
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           // Option rows
           ...q.options.asMap().entries.map((entry) {
@@ -1364,10 +1395,11 @@ class _ClassPageState extends State<ClassPage> {
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Opening ${material.type.toUpperCase()}: ${material.title}'),
+              content: Text('Opening ${material.type.toUpperCase()}: ${material.title}...'),
               duration: const Duration(seconds: 2),
             ),
           );
+          _launchUrl(material.fileUrl);
         }
       },
       child: AnimatedContainer(

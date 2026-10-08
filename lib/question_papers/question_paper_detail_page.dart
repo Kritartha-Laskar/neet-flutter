@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/question_paper_service.dart';
+import '../services/exam_service.dart';
 import '../services/auth_provider.dart';
 import '../models/question_paper_model.dart';
+import '../config/api_config.dart';
+import '../home_page/login_page.dart';
+import '../widgets/math_text.dart';
 
 class FlatQuestion {
   final SectionModel section;
@@ -74,6 +78,31 @@ class _QuestionPaperDetailPageState extends State<QuestionPaperDetailPage> {
     });
     try {
       final token = AuthProvider.instance.token ?? '';
+      if (token.isNotEmpty) {
+        try {
+          final res = await ExamService.startExam(token: token, paperId: widget.paperId);
+          dynamic data = res['data'] ?? res;
+          if (data is Map) {
+            final attId = data['attempt_id'] ?? data['id'] ?? res['attempt_id'] ?? res['id'];
+            if (attId != null) {
+              _attemptId = (attId as num).toInt();
+            }
+            if (data['saved_answers'] is Map) {
+              final saved = data['saved_answers'] as Map;
+              saved.forEach((qId, optId) {
+                final intQId = int.tryParse(qId.toString());
+                final intOptId = int.tryParse(optId.toString());
+                if (intQId != null && intOptId != null) {
+                  _selectedAnswers[intQId] = intOptId;
+                }
+              });
+            }
+          }
+        } catch (e) {
+          debugPrint('startExam error: $e');
+        }
+      }
+
       final detail = await QuestionPaperService.fetchDetail(
         token: token,
         id: widget.paperId,
@@ -128,15 +157,34 @@ class _QuestionPaperDetailPageState extends State<QuestionPaperDetailPage> {
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  int? _attemptId;
+  bool _isSubmitting = false;
+
   void _selectOption(int questionId, int optionId) {
     if (_isReviewMode || _isSubmitted) return;
+    final int? newOptionId =
+        _selectedAnswers[questionId] == optionId ? null : optionId;
+
     setState(() {
-      if (_selectedAnswers[questionId] == optionId) {
-        _selectedAnswers.remove(questionId); // Unselect if tapped again
+      if (newOptionId == null) {
+        _selectedAnswers.remove(questionId);
       } else {
         _selectedAnswers[questionId] = optionId;
       }
     });
+
+    // Save answer real-time to backend
+    final token = AuthProvider.instance.token;
+    if (token != null && token.isNotEmpty && _attemptId != null) {
+      ExamService.saveAnswer(
+        token: token,
+        attemptId: _attemptId!,
+        questionId: questionId,
+        selectedAnswerId: newOptionId,
+      ).catchError((e) {
+        debugPrint('saveAnswer error for questionId $questionId: $e');
+      });
+    }
   }
 
   void _calculateResults() {
@@ -169,14 +217,56 @@ class _QuestionPaperDetailPageState extends State<QuestionPaperDetailPage> {
     _score = (_correctCount * correctVal) - (_incorrectCount * incorrectVal);
   }
 
-  void _autoSubmitTest() {
+  Future<void> _autoSubmitTest() async {
+    if (_isSubmitting) return;
     _timer?.cancel();
     _calculateResults();
+
+    final token = AuthProvider.instance.token;
+    if (token != null && token.isNotEmpty && _attemptId != null) {
+      setState(() {
+        _isSubmitting = true;
+      });
+
+      try {
+        await ExamService.submitExam(token: token, attemptId: _attemptId!);
+      } catch (e) {
+        debugPrint('submitExam error: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Warning: Could not sync with server ($e)'),
+              backgroundColor: _errorColor,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSubmitting = false;
+          });
+        }
+      }
+    } else if (token == null || token.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Note: You are in guest mode. Results were not saved to a user account.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+
     setState(() {
       _isSubmitted = true;
       _isReviewMode = true;
     });
-    _showResultsDialog();
+
+    if (mounted) {
+      _showResultsDialog();
+    }
   }
 
   void _confirmSubmit() {
@@ -408,24 +498,52 @@ class _QuestionPaperDetailPageState extends State<QuestionPaperDetailPage> {
   }
 
   Widget _buildError() {
+    final is401 = _error != null && (_error!.contains('401') || _error!.contains('Unauthorized') || _error!.contains('Session expired'));
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.wifi_off_rounded, color: _textMuted, size: 56),
-            const SizedBox(height: 16),
-            Text(_error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: _textMuted)),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _fetchDetail,
-              style: ElevatedButton.styleFrom(backgroundColor: _primary),
-              child:
-                  const Text('Retry', style: TextStyle(color: Colors.white)),
+            Icon(
+              is401 ? Icons.lock_clock_rounded : Icons.wifi_off_rounded,
+              color: is401 ? Colors.orangeAccent : _textMuted,
+              size: 56,
             ),
+            const SizedBox(height: 16),
+            Text(
+              is401
+                  ? 'Your session has expired or you are not logged in (401).\nPlease log in again.'
+                  : _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: _textDark, fontSize: 14, height: 1.4),
+            ),
+            const SizedBox(height: 24),
+            if (is401)
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await AuthProvider.instance.clearSession();
+                  if (context.mounted) {
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const LoginPage()),
+                      (route) => false,
+                    );
+                  }
+                },
+                icon: const Icon(Icons.login_rounded, color: Colors.white, size: 18),
+                label: const Text('Log In Again', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              )
+            else
+              ElevatedButton(
+                onPressed: _fetchDetail,
+                style: ElevatedButton.styleFrom(backgroundColor: _primary),
+                child: const Text('Retry', style: TextStyle(color: Colors.white)),
+              ),
           ],
         ),
       ),
@@ -716,15 +834,104 @@ class _QuestionPaperDetailPageState extends State<QuestionPaperDetailPage> {
             ],
           ),
           const SizedBox(height: 16),
-          Text(
-            q.question,
-            style: const TextStyle(
-              color: _textDark,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              height: 1.5,
+          if (q.question.isNotEmpty)
+            MathText(
+              q.question,
+              style: const TextStyle(
+                color: _textDark,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                height: 1.5,
+              ),
             ),
-          ),
+          if (q.imageUrl != null && q.imageUrl!.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E4E8)),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(
+                  ApiConfig.formatUrl(q.imageUrl),
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Container(
+                      height: 180,
+                      color: const Color(0xFFF5F6FA),
+                      alignment: Alignment.center,
+                      child: const CircularProgressIndicator(color: _primary),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image_rounded, color: Colors.redAccent, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Failed to load question image',
+                            style: TextStyle(color: Colors.redAccent, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+          if ((_isReviewMode || _isSubmitted) &&
+              q.reason != null &&
+              q.reason!.trim().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F3FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _primary.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.lightbulb_rounded, color: _primary, size: 18),
+                      SizedBox(width: 6),
+                      Text(
+                        'Reason / Explanation',
+                        style: TextStyle(
+                          color: _primary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  MathText(
+                    q.reason!,
+                    style: const TextStyle(
+                      color: _textDark,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -836,15 +1043,33 @@ class _QuestionPaperDetailPageState extends State<QuestionPaperDetailPage> {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(
-                  opt.answer,
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 13.5,
-                    fontWeight: isSelected || (_isReviewMode && isCorrect)
-                        ? FontWeight.w700
-                        : FontWeight.w500,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    MathText(
+                      opt.answer,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 13.5,
+                        fontWeight: isSelected || (_isReviewMode && isCorrect)
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                    if ((_isReviewMode || _isSubmitted) &&
+                        opt.reason != null &&
+                        opt.reason!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      MathText(
+                        'Reason: ${opt.reason}',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: _primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const SizedBox(width: 10),
