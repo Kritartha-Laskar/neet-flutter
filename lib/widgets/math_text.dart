@@ -23,15 +23,47 @@ class MathText extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    // Normalize potential double backslash escaping from JSON or DB
+    final normalizedText = text
+        .replaceAll(r'\\(', r'\(')
+        .replaceAll(r'\\)', r'\)')
+        .replaceAll(r'\\\[', r'\[')
+        .replaceAll(r'\\\]', r'\]');
+
     // Matches \( ... \), \[ ... \], $$ ... $$, or $ ... $
     final regex = RegExp(
       r'(\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)',
       multiLine: true,
     );
 
-    final matches = regex.allMatches(text).toList();
+    final matches = regex.allMatches(normalizedText).toList();
+    final defaultFontSize = style?.fontSize ?? 14.0;
+    final defaultColor = style?.color;
 
     if (matches.isEmpty) {
+      // Check if text is raw LaTeX without delimiters (e.g. \frac{a}{b}, \sqrt{x})
+      final hasRawLatex = RegExp(
+        r'\\(frac|sqrt|cdot|times|pm|mp|le|ge|neq|approx|alpha|beta|gamma|delta|pi|theta|lambda|sigma|omega|sum|int|infty|degree|text|mathbf|mathrm|partial)\b',
+      ).hasMatch(normalizedText);
+
+      if (hasRawLatex) {
+        return Math.tex(
+          normalizedText.trim(),
+          mathStyle: MathStyle.text,
+          textStyle: TextStyle(
+            fontSize: defaultFontSize,
+            color: defaultColor,
+          ),
+          onErrorFallback: (_) => Text(
+            text,
+            style: style,
+            textAlign: textAlign,
+            overflow: overflow,
+            maxLines: maxLines,
+          ),
+        );
+      }
+
       return Text(
         text,
         style: style,
@@ -44,13 +76,10 @@ class MathText extends StatelessWidget {
     final List<InlineSpan> spans = [];
     int lastEnd = 0;
 
-    final defaultFontSize = style?.fontSize ?? 14.0;
-    final defaultColor = style?.color;
-
     for (final match in matches) {
       if (match.start > lastEnd) {
         spans.add(TextSpan(
-          text: text.substring(lastEnd, match.start),
+          text: normalizedText.substring(lastEnd, match.start),
           style: style,
         ));
       }
@@ -99,9 +128,9 @@ class MathText extends StatelessWidget {
       lastEnd = match.end;
     }
 
-    if (lastEnd < text.length) {
+    if (lastEnd < normalizedText.length) {
       spans.add(TextSpan(
-        text: text.substring(lastEnd),
+        text: normalizedText.substring(lastEnd),
         style: style,
       ));
     }

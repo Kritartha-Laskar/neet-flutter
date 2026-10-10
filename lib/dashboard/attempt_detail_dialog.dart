@@ -196,7 +196,7 @@ class _AttemptDetailDialogState extends State<AttemptDetailDialog> {
                                           ),
                                           const SizedBox(width: 8),
                                           Expanded(
-                                            child: Text(
+                                            child: MathText(
                                               ans.questionText,
                                               style: const TextStyle(
                                                 color: _textDark,
@@ -238,7 +238,7 @@ class _AttemptDetailDialogState extends State<AttemptDetailDialog> {
                                             ),
                                           ),
                                           Expanded(
-                                            child: Text(
+                                            child: MathText(
                                               ans.selectedAnswerText ?? 'Not Answered',
                                               style: TextStyle(
                                                 color: isSkipped
@@ -268,7 +268,7 @@ class _AttemptDetailDialogState extends State<AttemptDetailDialog> {
                                               ),
                                             ),
                                             Expanded(
-                                              child: Text(
+                                              child: MathText(
                                                 ans.correctAnswerText!,
                                                 style: const TextStyle(
                                                   color: _success,
@@ -312,7 +312,7 @@ class _AttemptDetailDialogState extends State<AttemptDetailDialog> {
                                                ],
                                              ),
                                              const SizedBox(height: 4),
-                                             Text(
+                                             MathText(
                                                (ans.reason != null &&
                                                        ans.reason!.trim().isNotEmpty &&
                                                        ans.reason!.trim() != 'null')

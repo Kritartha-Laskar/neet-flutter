@@ -121,6 +121,153 @@ class QuestionPaperModel {
     required this.createdAt,
   });
 
+  static String? parseChapterName(Map<String, dynamic> json) {
+    // 1. Direct key strings
+    final direct = json['chapter_name'] ??
+        json['chapter_title'] ??
+        json['chapterName'] ??
+        json['chapterTitle'] ??
+        json['topic'] ??
+        json['topic_name'] ??
+        json['topic_title'];
+    if (direct != null &&
+        direct.toString().trim().isNotEmpty &&
+        direct.toString().trim().toLowerCase() != 'null') {
+      return direct.toString().trim();
+    }
+
+    // 2. 'chapter' as Map or String
+    final chap = json['chapter'];
+    if (chap is Map) {
+      final name = chap['name'] ??
+          chap['title'] ??
+          chap['chapter_name'] ??
+          chap['chapter_title'] ??
+          chap['full_title'];
+      if (name != null &&
+          name.toString().trim().isNotEmpty &&
+          name.toString().trim().toLowerCase() != 'null') {
+        return name.toString().trim();
+      }
+    } else if (chap is String &&
+        chap.trim().isNotEmpty &&
+        chap.trim().toLowerCase() != 'null') {
+      return chap.trim();
+    }
+
+    // 3. 'chapters' as List
+    if (json['chapters'] is List && (json['chapters'] as List).isNotEmpty) {
+      final first = (json['chapters'] as List).first;
+      if (first is Map) {
+        final name = first['name'] ?? first['title'] ?? first['chapter_name'];
+        if (name != null && name.toString().trim().isNotEmpty) {
+          return name.toString().trim();
+        }
+      } else if (first is String && first.trim().isNotEmpty) {
+        return first.trim();
+      }
+    }
+
+    return null;
+  }
+
+  /// Returns the actual chapter title of the paper.
+  /// If not directly provided in API payload, extracts it from the description or title.
+  String get effectiveChapterTitle {
+    // 1. Direct chapterName from API
+    if (chapterName != null) {
+      final name = chapterName!.trim();
+      if (name.isNotEmpty &&
+          name.toLowerCase() != 'null' &&
+          name != '{}' &&
+          !name.startsWith('{')) {
+        return name;
+      }
+    }
+
+    // 2. Extract from description (e.g. "...preparation for Sexual Reproduction in Flowering Plants.")
+    if (description != null && description!.trim().isNotEmpty) {
+      final desc = description!.trim();
+
+      // Match "preparation for <Chapter>"
+      final prepMatch = RegExp(
+        r'preparation for\s+([^.]+)',
+        caseSensitive: false,
+      ).firstMatch(desc);
+      if (prepMatch != null) {
+        final extracted = prepMatch.group(1)!.trim();
+        if (extracted.isNotEmpty) return extracted;
+      }
+
+      // Match "chapter test for <Chapter>" or "test for <Chapter>"
+      final testOnMatch = RegExp(
+        r'(?:chapter test|practice test|mock test|test)\s+(?:for|on|covering)\s+([^.]+)',
+        caseSensitive: false,
+      ).firstMatch(desc);
+      if (testOnMatch != null) {
+        final extracted = testOnMatch.group(1)!.trim();
+        if (extracted.isNotEmpty &&
+            !extracted.toLowerCase().startsWith('mock test') &&
+            !extracted.toLowerCase().startsWith('neet') &&
+            !extracted.toLowerCase().startsWith('all subject')) {
+          return extracted;
+        }
+      }
+
+      // Match "Chapter: <Chapter>" or "Topic: <Chapter>"
+      final labelMatch = RegExp(
+        r'(?:chapter|topic)[:\-]\s*([^.,\n]+)',
+        caseSensitive: false,
+      ).firstMatch(desc);
+      if (labelMatch != null) {
+        final extracted = labelMatch.group(1)!.trim();
+        if (extracted.isNotEmpty) return extracted;
+      }
+    }
+
+    // 3. Extract from title
+    final trimmedTitle = title.trim();
+    if (trimmedTitle.isNotEmpty) {
+      // Match "Chapter 1: Cell" or "Chapter 1"
+      final chapNumMatch = RegExp(
+        r'(Chapter\s*\d+[^:#\-]*)',
+        caseSensitive: false,
+      ).firstMatch(trimmedTitle);
+      if (chapNumMatch != null) {
+        return chapNumMatch.group(1)!.trim();
+      }
+
+      // Match "<Chapter> - Mock Test"
+      final prefixMatch = RegExp(
+        r'^(.+?)\s*[-:]\s*(?:Mock Test|Chapter Test|Test Paper|Practice Test)',
+        caseSensitive: false,
+      ).firstMatch(trimmedTitle);
+      if (prefixMatch != null) {
+        final extracted = prefixMatch.group(1)!.trim();
+        if (extracted.isNotEmpty && !extracted.toLowerCase().contains('neet')) {
+          return extracted;
+        }
+      }
+
+      // Non-generic title (e.g. title is the actual chapter name)
+      final isGeneric = RegExp(
+        r'^(mock test|test paper|practice test|neet mock test|mock test \d{4})$',
+        caseSensitive: false,
+      ).hasMatch(trimmedTitle);
+
+      if (!isGeneric && trimmedTitle.length > 3) {
+        return trimmedTitle;
+      }
+    }
+
+    // 4. Default clean fallback for subject mock tests
+    if (subjectName != null && subjectName!.trim().isNotEmpty) {
+      return '${subjectName!.trim()} - Full Syllabus Mock Test';
+    }
+
+    return 'Full Syllabus Mock Test';
+  }
+
   factory QuestionPaperModel.fromJson(Map<String, dynamic> json) =>
       QuestionPaperModel(
         id: (json['id'] as num).toInt(),
@@ -128,10 +275,14 @@ class QuestionPaperModel {
         description: json['description']?.toString(),
         examName: json['exam_name']?.toString(),
         paperType: json['paper_type']?.toString(),
-        subjectId: json['subject_id'] == null ? null : int.tryParse(json['subject_id'].toString()),
+        subjectId: json['subject_id'] == null
+            ? null
+            : int.tryParse(json['subject_id'].toString()),
         subjectName: json['subject_name']?.toString(),
-        chapterName: json['chapter_name']?.toString() ?? json['chapter']?.toString(),
-        examYear: json['exam_year'] == null ? null : int.tryParse(json['exam_year'].toString()),
+        chapterName: parseChapterName(json),
+        examYear: json['exam_year'] == null
+            ? null
+            : int.tryParse(json['exam_year'].toString()),
         totalQuestions: (json['total_questions'] as num? ?? 0).toInt(),
         totalMarks: (json['total_marks'] as num? ?? 0).toInt(),
         durationMinutes: (json['duration_minutes'] as num? ?? 0).toInt(),
@@ -146,6 +297,7 @@ class QuestionPaperDetailModel {
   final String title;
   final String? description;
   final String? examName;
+  final String? chapterName;
   final int? examYear;
   final int totalQuestions;
   final int totalMarks;
@@ -158,6 +310,7 @@ class QuestionPaperDetailModel {
     required this.title,
     this.description,
     this.examName,
+    this.chapterName,
     this.examYear,
     required this.totalQuestions,
     required this.totalMarks,
@@ -174,7 +327,10 @@ class QuestionPaperDetailModel {
       title: json['title']?.toString() ?? '',
       description: json['description']?.toString(),
       examName: json['exam_name']?.toString(),
-      examYear: json['exam_year'] == null ? null : int.tryParse(json['exam_year'].toString()),
+      chapterName: QuestionPaperModel.parseChapterName(json),
+      examYear: json['exam_year'] == null
+          ? null
+          : int.tryParse(json['exam_year'].toString()),
       totalQuestions: (json['total_questions'] as num? ?? 0).toInt(),
       totalMarks: (json['total_marks'] as num? ?? 0).toInt(),
       durationMinutes: (json['duration_minutes'] as num? ?? 0).toInt(),
@@ -185,3 +341,4 @@ class QuestionPaperDetailModel {
     );
   }
 }
+

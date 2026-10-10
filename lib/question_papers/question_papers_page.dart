@@ -197,16 +197,7 @@ class _QuestionPapersPageState extends State<QuestionPapersPage> {
   }
 
   String _getEffectiveChapterName(QuestionPaperModel paper) {
-    if (paper.chapterName != null && paper.chapterName!.trim().isNotEmpty) {
-      return paper.chapterName!.trim();
-    }
-    final RegExp chapterRegex =
-        RegExp(r'(Chapter\s*\d+[^:#\-]*)', caseSensitive: false);
-    final match = chapterRegex.firstMatch(paper.title);
-    if (match != null) {
-      return match.group(1)!.trim();
-    }
-    return 'General Chapter / Full Syllabus';
+    return paper.effectiveChapterTitle;
   }
 
   @override
@@ -933,7 +924,7 @@ class _SubjectCard extends StatelessWidget {
 
 // ── Web-Style Paper Card (Matching User Web Screenshot) ─────────────────────
 
-class _WebStylePaperCard extends StatelessWidget {
+class _WebStylePaperCard extends StatefulWidget {
   final QuestionPaperModel paper;
   final SubjectInfo subjectTheme;
   final String chapterTitle;
@@ -945,6 +936,13 @@ class _WebStylePaperCard extends StatelessWidget {
     required this.chapterTitle,
     required this.onTap,
   });
+
+  @override
+  State<_WebStylePaperCard> createState() => _WebStylePaperCardState();
+}
+
+class _WebStylePaperCardState extends State<_WebStylePaperCard> {
+  bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -961,227 +959,277 @@ class _WebStylePaperCard extends StatelessWidget {
         ],
         border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Green / Subject Header Banner ──
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: subjectTheme.color,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Green / Subject Header Banner (Click to Expand / Collapse) ──
+            Material(
+              color: widget.subjectTheme.color,
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _isExpanded = !_isExpanded;
+                  });
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.shield_outlined,
+                                    color: Colors.white, size: 12),
+                                const SizedBox(width: 4),
+                                Text(
+                                  (widget.paper.subjectName ??
+                                          widget.subjectTheme.name)
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              Text(
+                                '${widget.paper.examYear ?? 2026}',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.85),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              AnimatedRotation(
+                                turns: _isExpanded ? 0.5 : 0.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.chapterTitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          height: 1.25,
+                        ),
+                      ),
+                      if (_isExpanded) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                widget.paper.title.toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (widget.paper.examName != null &&
+                                widget.paper.examName!.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.18),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  widget.paper.examName!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+
+            // ── Collapsible Card Body (Description, Stats, View Paper) ──
+            AnimatedCrossFade(
+              firstChild: const SizedBox(width: double.infinity, height: 0),
+              secondChild: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (widget.paper.description != null &&
+                        widget.paper.description!.isNotEmpty) ...[
+                      Text(
+                        widget.paper.description!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Color(0xFF64748B), fontSize: 12),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // ── 3 Stats Grid ──
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(6),
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFF1F5F9)),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.shield_outlined,
-                              color: Colors.white, size: 12),
-                          const SizedBox(width: 4),
-                          Text(
-                            (paper.subjectName ?? subjectTheme.name)
-                                .toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Text(
+                                  '${widget.paper.totalQuestions > 0 ? widget.paper.totalQuestions : widget.paper.questionsCount}',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: widget.subjectTheme.color,
+                                  ),
+                                ),
+                                const Text('Questions',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF94A3B8))),
+                              ],
+                            ),
+                          ),
+                          Container(
+                              height: 20,
+                              width: 1,
+                              color: const Color(0xFFE2E8F0)),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Text(
+                                  '${widget.paper.totalMarks}',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: widget.subjectTheme.color,
+                                  ),
+                                ),
+                                const Text('Marks',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF94A3B8))),
+                              ],
+                            ),
+                          ),
+                          Container(
+                              height: 20,
+                              width: 1,
+                              color: const Color(0xFFE2E8F0)),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Text(
+                                  '${widget.paper.durationMinutes}',
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFFF59E0B),
+                                  ),
+                                ),
+                                const Text('Minutes',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF94A3B8))),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
-                    Text(
-                      '${paper.examYear ?? 2026}',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.85),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(height: 16),
+
+                    // ── View Paper Button ──
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: widget.onTap,
+                        icon: const Icon(Icons.visibility_rounded, size: 18),
+                        label: const Text(
+                          'View Paper',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00CED1),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 0,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  paper.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    paper.examName ?? 'NEET UG Medical',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
+              ),
+              crossFadeState: _isExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 250),
             ),
-          ),
-
-          // ── Card Body ──
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (paper.description != null &&
-                    paper.description!.isNotEmpty) ...[
-                  Text(
-                    paper.description!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        const TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-
-                // ── 3 Stats Grid ──
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFF1F5F9)),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Text(
-                              '${paper.totalQuestions > 0 ? paper.totalQuestions : paper.questionsCount}',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: subjectTheme.color,
-                              ),
-                            ),
-                            const Text('Questions',
-                                style: TextStyle(
-                                    fontSize: 10, color: Color(0xFF94A3B8))),
-                          ],
-                        ),
-                      ),
-                      Container(height: 20, width: 1, color: const Color(0xFFE2E8F0)),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Text(
-                              '${paper.totalMarks}',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: subjectTheme.color,
-                              ),
-                            ),
-                            const Text('Marks',
-                                style: TextStyle(
-                                    fontSize: 10, color: Color(0xFF94A3B8))),
-                          ],
-                        ),
-                      ),
-                      Container(height: 20, width: 1, color: const Color(0xFFE2E8F0)),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Text(
-                              '${paper.durationMinutes}',
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFFF59E0B),
-                              ),
-                            ),
-                            const Text('Minutes',
-                                style: TextStyle(
-                                    fontSize: 10, color: Color(0xFF94A3B8))),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // ── Chapter Tag ──
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6C63FF).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.bookmark_rounded,
-                          color: Color(0xFF6C63FF), size: 12),
-                      const SizedBox(width: 4),
-                      Text(
-                        chapterTitle,
-                        style: const TextStyle(
-                          color: Color(0xFF6C63FF),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // ── View Paper Button ──
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: onTap,
-                    icon: const Icon(Icons.visibility_rounded, size: 18),
-                    label: const Text(
-                      'View Paper',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF00CED1),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1255,13 +1303,24 @@ class _PaperCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              paper.title,
+                              paper.effectiveChapterTitle,
                               style: const TextStyle(
                                 color: _textDark,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
+                            if (paper.title != paper.effectiveChapterTitle) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                paper.title,
+                                style: const TextStyle(
+                                  color: _textMuted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                             if (paper.examName != null) ...[
                               const SizedBox(height: 3),
                               Row(
