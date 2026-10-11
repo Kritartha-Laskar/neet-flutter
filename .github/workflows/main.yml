@@ -72,3 +72,35 @@ jobs:
         with:
           name: app-release-ios-ipa
           path: neetcommon-ios.ipa
+
+  build-ios-simulator:
+    name: Build iOS Simulator (for Appetize.io)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Build iOS Simulator
+        run: flutter build ios --simulator --no-codesign
+
+      - name: Package Simulator App
+        run: |
+          cd build/ios/iphonesimulator
+          zip -r -q app-simulator.zip Runner.app
+        shell: bash
+
+      - name: Upload Simulator Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appetize-simulator-build
+          path: build/ios/iphonesimulator/app-simulator.zip
